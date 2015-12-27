@@ -26,6 +26,10 @@ import shlex
 import traceback
 import json
 import xmltodict
+from os.path import expanduser, isfile
+from Crypto.Cipher import PKCS1_v1_5
+from Crypto.PublicKey import RSA
+
 
 from ansible.compat.six.moves.urllib.parse import urlunsplit
 
@@ -94,6 +98,20 @@ class Connection(ConnectionBase):
         self._winrm_path = host_vars.get('ansible_winrm_path', '/wsman')
         self._winrm_user = self._play_context.remote_user
         self._winrm_pass = self._play_context.password
+
+        try:
+            raw_password_data = base64.b64decode(host_vars.get('ansible_encrypted_password'))
+            key_file = expanduser(self._play_context.private_key_file)
+            if key_file and isfile(key_file):
+                with open(key_file, 'r') as f:
+                    key = RSA.importKey(f.read())
+                cipher = PKCS1_v1_5.new(key)
+                sentinel = '__decryption_failed__'
+                decrypted = cipher.decrypt(raw_password_data, sentinel)
+                if decrypted and decrypted != sentinel:
+                    self._winrm_pass = decrypted
+        except:
+            pass
 
         if '@' in self._winrm_user:
             self._winrm_realm = self._winrm_user.split('@', 1)[1].strip() or None
